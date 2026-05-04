@@ -1010,7 +1010,7 @@ Simulates cascading failure:
 
 This project demonstrates:
 
-✅ **High-throughput system design** with backpressure handling
+✅ **High-throughput system design** with backpressure handling**
 ✅ **Async/concurrent programming** in Python and JavaScript
 ✅ **Design patterns** (Strategy, State, Producer-Consumer)
 ✅ **Resilience engineering** (retry logic, graceful degradation)
