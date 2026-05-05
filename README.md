@@ -927,9 +927,30 @@ Simulates cascading failure:
 
 This project demonstrates:
 
-✅ **High-throughput system design** with backpressure handling
+✅ **High-throughput system design** with backpressure handling**
 ✅ **Async/concurrent programming** in Python and JavaScript
 ✅ **Design patterns** (Strategy, State, Producer-Consumer)
 ✅ **Resilience engineering** (retry logic, graceful degradation)
 ✅ **Full-stack development** (backend, frontend, database, Docker)
 ✅ **Real-time monitoring** systems for incident management
+
+---
+
+## 📝 License
+
+MIT License - See LICENSE file for details
+
+---
+
+## 👥 Support
+
+For questions or issues:
+1. Check troubleshooting section above
+2. Review API documentation
+3. Check component-level README files
+4. Inspect console logs and browser DevTools
+
+---
+
+**Last Updated:** May 4, 2026
+**Version:** 1.0.0
