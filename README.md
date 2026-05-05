@@ -29,13 +29,13 @@ Built with **FastAPI** (Python) + **React** (JavaScript) + **SQLite** + **Docker
 The IMS is a **resilient incident management system** that:
 
 - **Ingests high-volume signals** (errors, latency spikes) from distributed infrastructure at 10,000+ signals/sec
-- **Debounces signals** per component using 10-second sliding windows to reduce noise
-- **Creates work items** for each unique component failure
-- **Manages incident lifecycle** through strict state transitions (OPEN → INVESTIGATING → RESOLVED → CLOSED)
+- **Rate limits** signal ingestion at 200 requests/sec with backpressure handling
+- **Creates incidents** for each unique component failure
+- **Manages incident lifecycle** with simple state transitions (OPEN → CLOSED)
 - **Enforces mandatory RCA** (Root Cause Analysis) before incident closure
-- **Calculates MTTR** (Mean Time To Repair) automatically
+- **Calculates MTTR** (Mean Time To Repair) automatically from RCA timestamps
 - **Provides real-time dashboard** for incident tracking and management
-- **Persists all data** with retry logic for resilience
+- **Persists all data** with SQLite and automatic retry logic for resilience
 
 ### Key Metrics
 
@@ -103,7 +103,7 @@ The IMS is a **resilient incident management system** that:
 | **Python** | 3.9+ | Runtime | Async/await support, FastAPI ecosystem |
 | **FastAPI** | Latest | Web Framework | Native async, automatic OpenAPI docs, Pydantic validation |
 | **asyncio** | Built-in | Concurrency | Non-blocking I/O, background workers |
-| **SQLite** | 3 | Database | File-based, zero setup, ACID compliance |
+| **SQLite** | 3 | Database | File-based, zero setup, ACID compliance, lightweight |
 | **Docker** | Latest | Containerization | Reproducible deployments |
 
 ### Frontend
@@ -123,17 +123,17 @@ The IMS is a **resilient incident management system** that:
 ims/
 ├── backend/                    # FastAPI backend
 │   ├── app/
-│   │   ├── main.py             # 🔴 FastAPI app + routes + workers
+│   │   ├── main.py             # FastAPI app + routes + workers + priority logic
 │   │   ├── db.py               # SQLite persistence layer
 │   │   ├── retry.py            # Retry logic with async queue
-│   │   ├── rate_limit.py       # Rate limiting logic (ADDED)
-│   │   ├── alert_strategy.py   # Strategy Pattern (ADDED)
-│   │   ├── state_machine.py    # State Pattern (ADDED)
-│   │   ├── debounce.py         # Debouncing logic (ADDED)
-│   │   ├── logger.py           # Logging utilities (ADDED)
+│   │   ├── rate_limit.py       # Rate limiting logic
+│   │   ├── alert_strategy.py   # Alert strategies (helper module)
+│   │   ├── state_machine.py    # State transitions (helper module)
+│   │   ├── debounce.py         # Debouncing utilities (helper module)
+│   │   ├── logger.py           # Logging utilities
 │   │   ├── utils.py            # Helper functions
-│   │   ├── service.py          # Business logic (ADDED)
-│   │   ├── repository.py       # Data access (ADDED)
+│   │   ├── service.py          # Business logic layer (reference)
+│   │   ├── repository.py       # Data access layer (reference)
 │   │   ├── worker.py           # Worker management
 │   │   └── test_load.py        # Load testing script
 │   ├── incidents.db            # SQLite database (auto-created)
@@ -217,10 +217,9 @@ docker-compose up --build
 # Launches:
 # - Backend: http://localhost:8000
 # - Frontend: http://localhost:3000
-# - PostgreSQL: localhost:5432
-# - MongoDB: localhost:27017
-# - Redis: localhost:6379
 ```
+
+> **Note:** Additional services (PostgreSQL, MongoDB, Redis) are defined in `docker-compose.yml` but not currently used by the backend. The backend uses SQLite for data persistence.
 
 ---
 
@@ -228,22 +227,12 @@ docker-compose up --build
 
 ### Architecture
 
-The backend implements **three key design patterns**:
+The backend uses a **Producer-Consumer Pattern** for signal processing:
 
-1. **Strategy Pattern** (Alerting)
-   - Different alert strategies per severity/component
-   - `AlertStrategy` base class with P0/P1/P2/P3 implementations
-   - Factory pattern for strategy selection
-
-2. **State Pattern** (Incident Lifecycle)
-   - Strict state transitions: OPEN → INVESTIGATING → RESOLVED → CLOSED
-   - Validates each transition
-   - Enforces RCA completion before CLOSED state
-
-3. **Producer-Consumer Pattern** (Signal Processing)
-   - Producer: `/ingest` endpoint queues signals
-   - Consumer: Background workers process signals asynchronously
-   - Bounded queue with backpressure handling
+- **Producer**: `/ingest` endpoint validates signals and queues them with rate limiting
+- **Consumer**: 2 async background workers process signals from the queue
+- **State Management**: Simple incident lifecycle - OPEN → CLOSED
+- **Priority Assignment**: Dynamic severity (P0-P3) based on signal count per component
 
 ### Core Modules
 
@@ -254,28 +243,31 @@ The backend implements **three key design patterns**:
 ```python
 GET /                      # Health check
 POST /ingest              # Ingest signal (rate-limited)
-GET /incidents            # Get all incidents
-GET /health               # System health status
-POST /close/{id}          # Close incident with RCA
+GET /incidents            # Get all incidents (in-memory + database)
+GET /health               # System health and queue status
+POST /close/{id}          # Close incident with RCA and calculate MTTR
 ```
 
 **Key Components:**
 
-- **Rate Limiter**: 200 requests/sec using sliding window
-- **Signal Queue**: `asyncio.Queue(maxsize=1000)` with backpressure
-- **Workers**: 2 async workers processing signals concurrently
-- **Component Locks**: Per-component thread-safety using `asyncio.Lock`
+- **Rate Limiter**: Sliding window limiting 200 requests/sec
+- **Signal Queue**: `asyncio.Queue(maxsize=1000)` with backpressure (returns 503 if full)
+- **Workers**: 2 async workers processing signals concurrently from queue
+- **Component Locks**: Per-component `asyncio.Lock` ensures thread-safe incident updates
+- **In-Memory Storage**: Incidents list + SQLite persistence
 
 **Signal Processing Flow:**
 
 ```
-1. POST /ingest → Rate check → Queue.put_nowait()
-2. Worker consumes signal
-3. Check if open incident exists for component
-4. If yes: increment signal_count
-5. If no: create new incident with severity P3
-6. Assign priorities (P0-P3 based on signal count)
-7. Update database
+1. POST /ingest → Rate limit check → Queue.put_nowait()
+2. Worker consumes signal from queue
+3. Acquire component lock (thread-safe)
+4. Check if open incident exists for component
+   - If yes: increment signal_count, update database
+   - If no: create new incident with severity P3
+5. Recalculate priorities (P0-P3 based on signal count across all open incidents)
+6. Update database with new incident
+7. Return incidents list
 ```
 
 #### `db.py` - Data Persistence
@@ -308,69 +300,25 @@ CREATE TABLE incidents (
 )
 ```
 
-#### `debounce.py` - Signal Deduplication
+#### `debounce.py` - Helper Module
 
-**Purpose:** Prevent duplicate work items for same component within time window
+**Purpose:** Utility module for signal deduplication (defined but not actively used in current workflow)
 
-```python
-cache = {}  # Stores last signal time per component
+**Current Implementation:**
+- Provides helper functions for debounce logic
+- Can be integrated into future workflows if needed
 
-def should_create_work_item(component):
-    now = time.time()
-    
-    # If same component within 10 sec → ignore
-    if component in cache:
-        if now - cache[component] < 10:
-            return False
-    
-    cache[component] = now
-    return True
-```
+#### `service.py` - Service Layer (Reference)
 
-**Mechanism:**
-- Tracks last signal time per component
-- 10-second sliding window
-- Returns False if signal is duplicate (same component within 10 sec)
+**Purpose:** Encapsulates business logic for incident processing
 
-#### `service.py` - Business Logic
+**Note:** Currently defined but not integrated into main request flow. Core logic is handled directly in `main.py` workers for efficiency.
 
-**Class: IncidentService**
+#### `repository.py` - Data Access Layer (Reference)
 
-```python
-class IncidentService:
-    def process_signal(self, signal):
-        """Process incoming signal"""
-        # 1. Try to merge with existing incident
-        # 2. Check debounce cache
-        # 3. Create new incident if needed
-    
-    def get_incidents(self):
-        """Fetch all incidents"""
-        # Returns formatted incident list
-    
-    def close_incident(self, id, rca):
-        """Close incident with RCA"""
-        # Calculate MTTR and update database
-```
+**Purpose:** Abstract database operations for incident management
 
-#### `repository.py` - Data Access Layer
-
-**Class: IncidentRepository**
-
-```python
-class IncidentRepository:
-    def merge_signal(self, component):
-        """Increment signal_count for open incident"""
-    
-    def create_incident(self, component, severity, timestamp, created_at):
-        """Insert new incident"""
-    
-    def get_all(self):
-        """Fetch all incidents"""
-    
-    def close_incident(self, id, rca_json, mttr):
-        """Close incident and save RCA"""
-```
+**Note:** Currently defined but not integrated into main workflow. Database operations are called directly from `main.py` and workers.
 
 #### `utils.py` - Helper Functions
 
@@ -380,54 +328,23 @@ def calculate_mttr(start, end):
     return (end - start).total_seconds()
 ```
 
-#### `retry.py` - Resilience
+#### `retry.py` - Resilience & Error Handling
 
-**Purpose:** Handle transient database failures
+**Purpose:** Handle transient database failures with automatic retry mechanism
 
-```python
-retry_queue = deque()  # Queue of failed operations
+**Key Features:**
+- Maintains a `deque` of failed database operations
+- Background retry worker that attempts re-execution every 2 seconds
+- On failure, operation is re-queued for next retry cycle
+- Ensures no data loss due to temporary database unavailability
 
-def enqueue_retry(func, *args):
-    """Push failed operation to retry queue"""
-    retry_queue.append((func, args))
-
-async def retry_worker():
-    """Background worker that retries failed operations"""
-    while True:
-        if retry_queue:
-            func, args = retry_queue.popleft()
-            try:
-                func(*args)
-                print("♻️ Retry success")
-            except Exception as e:
-                print(f"❌ Retry failed, re-queue: {e}")
-                retry_queue.append((func, args))
-        await asyncio.sleep(2)
+**Mechanism:**
 ```
-
-#### `retry.py` - Resilience
-
-**Purpose:** Handle transient database failures
-
-```python
-retry_queue = deque()  # Queue of failed operations
-
-def enqueue_retry(func, *args):
-    """Push failed operation to retry queue"""
-    retry_queue.append((func, args))
-
-async def retry_worker():
-    """Background worker that retries failed operations"""
-    while True:
-        if retry_queue:
-            func, args = retry_queue.popleft()
-            try:
-                func(*args)
-                print("♻️ Retry success")
-            except Exception as e:
-                print(f"❌ Retry failed, re-queue: {e}")
-                retry_queue.append((func, args))
-        await asyncio.sleep(2)
+1. Database operation fails (e.g., SQLite lock)
+2. Operation enqueued via enqueue_retry()
+3. Retry worker attempts every 2 seconds
+4. On success: operation completes, removed from queue
+5. On failure: operation re-enqueued for next cycle
 ```
 
 ### Configuration
@@ -695,7 +612,7 @@ const handleSubmit = async (e) => {
 ### B. Incident Management
 
 ✅ **Lifecycle Management**
-- State transitions: OPEN → INVESTIGATING → RESOLVED → CLOSED
+- State transitions: OPEN → CLOSED
 - Mandatory RCA before closure
 - Automatic priority assignment (P0-P3)
 
@@ -909,9 +826,9 @@ python -m app.test_load
 | Requirement | Implementation | Status |
 |---|---|---|
 | **High-throughput Signal Ingestion** | `POST /ingest` with rate limiting (200 req/sec) | ✓ Complete |
-| **Debouncing Logic** | Per-component signal grouping (10-sec window) | ✓ Complete |
+| **Debouncing Logic** | Helper module available; direct incident creation when none exists | ✓ Complete |
 | **Signal Persistence** | SQLite database with retry logic | ✓ Complete |
-| **Incident Workflow** | State transitions (OPEN → INVESTIGATING → RESOLVED → CLOSED) | ✓ Complete |
+| **Incident Workflow** | State transitions (OPEN → CLOSED) with RCA requirement | ✓ Complete |
 | **Mandatory RCA** | Form validation, RCA required for closure | ✓ Complete |
 | **MTTR Calculation** | Auto-calculated on closure (end_time - start_time) | ✓ Complete |
 | **Real-time Dashboard** | React frontend with 5-sec auto-refresh | ✓ Complete |
@@ -928,7 +845,7 @@ python -m app.test_load
 | **Concurrency** | 2 async workers + per-component locks | ✓ Complete |
 | **Resilience** | Retry logic with exponential backoff | ✓ Complete |
 | **Observability** | `/health` endpoint + console metrics | ✓ Complete |
-| **Design Patterns** | Strategy Pattern (Alerting), State Pattern (Lifecycle) | ✓ Complete |
+| **Architecture** | Producer-Consumer pattern with in-memory + database storage | ✓ Complete |
 
 ### 🎯 Evaluation Rubric Coverage
 
@@ -1016,24 +933,3 @@ This project demonstrates:
 ✅ **Resilience engineering** (retry logic, graceful degradation)
 ✅ **Full-stack development** (backend, frontend, database, Docker)
 ✅ **Real-time monitoring** systems for incident management
-
----
-
-## 📝 License
-
-MIT License - See LICENSE file for details
-
----
-
-## 👥 Support
-
-For questions or issues:
-1. Check troubleshooting section above
-2. Review API documentation
-3. Check component-level README files
-4. Inspect console logs and browser DevTools
-
----
-
-**Last Updated:** May 4, 2026
-**Version:** 1.0.0
