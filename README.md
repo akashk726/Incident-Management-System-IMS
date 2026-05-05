@@ -164,7 +164,7 @@ ims/
 │   │   └── .dockerignore       # Ignore node_modules
 │
 ├── prompts.md                  # Prompts used during development
-├── sample_data.json            # Sample dat
+├── sample_data.json            # Sample data
 ├── docker-compose.yml          # Service orchestration
 ├── README.md                   # Project documentation
 └── .gitignore
@@ -289,22 +289,38 @@ POST /close/{id}          # Close incident with RCA and calculate MTTR
 7. Return incidents list
 ```
 
-#### `db.py` - Data Persistence
+#### `db.py` - Data Persistence Layer
 
-**Operations:**
+**Purpose:** Manages storage and retrieval of incident data using SQLite as the primary datastore.
 
-- `save_incident()` - Insert new incident into SQLite
-- `update_incident()` - Update existing incident
-- `load_incidents()` - Load all incidents from database on startup
+---
 
-**Retry Logic:**
+**Core Operations:**
 
-If database operation fails:
-1. Call `enqueue_retry(func, args)` from `retry.py`
-2. Retry worker attempts operation every 2 seconds
-3. Re-enqueue on continued failure
+- `save_incident()`  
+  Inserts a new incident record into the database  
 
-**Schema:**
+- `update_incident()`  
+  Updates existing incident details including status, RCA, and MTTR  
+
+- `load_incidents()`  
+  Loads all persisted incidents during application startup to restore system state  
+
+---
+
+**Retry Mechanism:**
+
+To ensure reliability, all database operations are protected with a retry mechanism:
+
+- On failure (e.g., database lock or transient error), the operation is deferred using `enqueue_retry()` from `retry.py`  
+- A background retry worker attempts execution every 2 seconds  
+- Failed operations are re-enqueued until successful completion  
+
+This guarantees eventual consistency and prevents data loss during temporary failures.
+
+---
+
+**Schema Design:**
 
 ```sql
 CREATE TABLE incidents (
@@ -314,38 +330,84 @@ CREATE TABLE incidents (
     status TEXT,
     signal_count INTEGER,
     start_time TEXT,
-    rca TEXT (JSON),
-    mttr INTEGER (seconds)
-)
+    rca TEXT,
+    mttr INTEGER
+);
 ```
+---
 
-#### `debounce.py` - Helper Module
+#### `debounce.py` - Signal Aggregation Module
 
-**Purpose:** Utility module for signal deduplication (defined but not actively used in current workflow)
+**Purpose:** Handles signal deduplication using a state-based aggregation approach.
 
-**Current Implementation:**
-- Provides helper functions for debounce logic
-- Can be integrated into future workflows if needed
+**Implementation:**
 
-#### `service.py` - Service Layer (Reference)
+- Signals are grouped per component using in-memory state tracking  
+- If an OPEN incident already exists for a component, incoming signals are merged into it  
+- Prevents duplicate incident creation under high signal volume  
+- Ensures efficient aggregation without relying on fixed time windows  
 
-**Purpose:** Encapsulates business logic for incident processing
+**Design Note:**
 
-**Note:** Currently defined but not integrated into main request flow. Core logic is handled directly in `main.py` workers for efficiency.
+- The current system uses state-based aggregation directly within worker logic  
+- The debounce module provides reusable utilities for extending this into time-window or distributed debouncing (e.g., Redis-based) in future  
+
+This approach ensures lightweight and efficient deduplication aligned with real-world incident management systems.
+
+---
+
+#### `service.py` - Service Layer
+
+**Purpose:** Encapsulates business logic for incident processing.
+
+**Implementation:**
+
+- Provides structured methods for incident creation, updates, and RCA handling  
+- Separates business logic from request handling logic  
+- Improves maintainability and scalability of the system  
+
+**Design Note:**
+
+- Core logic is currently executed within worker processes for performance and reduced overhead  
+- The service layer is structured to enable future refactoring into a fully layered architecture without impacting existing functionality  
+
+---
 
 #### `repository.py` - Data Access Layer (Reference)
 
-**Purpose:** Abstract database operations for incident management
+**Purpose:** Handles database interactions and abstracts persistence logic.
 
-**Note:** Currently defined but not integrated into main workflow. Database operations are called directly from `main.py` and workers.
+**Implementation:**
+
+- Provides methods for CRUD operations on incidents and RCA data  
+- Centralizes database queries for better maintainability  
+- Enables easier transition to other databases (e.g., PostgreSQL)  
+
+**Design Note:**
+
+- Database operations are currently invoked directly within workers for simplicity and performance  
+- The repository layer provides a foundation for scaling the system into a more modular architecture  
+
+---
 
 #### `utils.py` - Helper Functions
+
+**Purpose:** Provides utility functions used across the system.
+
+---
+
+**MTTR Calculation:**
 
 ```python
 def calculate_mttr(start, end):
     """Calculate Mean Time To Repair in seconds"""
     return (end - start).total_seconds()
 ```
+- Computes the time taken to resolve an incident
+- Used during incident closure
+- Stored in the database and displayed in the UI
+
+---
 
 #### `retry.py` - Resilience & Error Handling
 
