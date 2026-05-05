@@ -51,45 +51,50 @@ The IMS is a **resilient incident management system** that:
 
 ```
                     ┌──────────────────────────────┐
-                    │   SIGNAL SOURCES              │
+                    │        SIGNAL SOURCES        │
                     │  APIs | Caches | DB | Queue  │
-                    └──────────────┬─────────────────┘
+                    └──────────────┬───────────────┘
                                    │ HTTP POST /ingest
                                    ▼
                     ┌──────────────────────────────┐
-                    │  A. INGESTION LAYER          │
+                    │      INGESTION LAYER         │
                     │                              │
-                    │  Rate Limiter: 200 req/sec   │
-                    │  Queue: asyncio.Queue(1000)  │
-                    │  Backpressure: Drop on full  │
-                    └──────────────┬────────────────┘
+                    │  FastAPI API                 │
+                    │  Rate Limiter (200 req/sec)  │
+                    │  Async Queue (size=1000)     │
+                    │  Backpressure (503 if full)  │
+                    └──────────────┬───────────────┘
                                    │
                     ┌──────────────▼────────────────┐
-                    │  B. DEBOUNCER & WORKER       │
-                    │                              │
-                    │  Per-component deduplication │
-                    │  10-second window            │
-                    │  2x async workers            │
-                    │  Lock-based sync             │
+                    │      WORKER PROCESSING        │
+                    │                               │
+                    │  Async Workers (2)            │
+                    │  Component Locks              │
+                    │  Signal Aggregation           │
+                    │  (merge into OPEN incident)   │
                     └──────────────┬────────────────┘
                                    │
-                    ┌──────────────▼────────────────┐
-                    │  C. DATA LAYER               │
-                    │                              │
-                    │  SQLite (incidents.db)       │
-                    │  - Work Items                │
-                    │  - RCA Records               │
-                    │  - Signal Counts             │
-                    └──────────────┬────────────────┘
-                                   │
-                    ┌──────────────▼────────────────┐
-                    │  D. FRONTEND DASHBOARD       │
-                    │                              │
-                    │  React UI (port 3000)        │
-                    │  - Live Feed                 │
-                    │  - Incident Detail           │
-                    │  - RCA Form                  │
-                    └──────────────────────────────┘
+        ┌──────────────────────────┴──────────────────────────┐
+        │                                                     │
+        ▼                                                     ▼
+┌──────────────────────────┐                  ┌──────────────────────────┐
+│     DATA STORAGE         │                  │     RETRY MECHANISM      │
+│                          │                  │                          │
+│  SQLite (incidents.db)   │                  │ Failed DB Operations     │
+│  - Incidents             │                  │ Retry Queue              │
+│  - RCA Data              │                  │ Background Worker        │
+│  - MTTR                  │                  │ (every 2 sec)            │
+└──────────────┬───────────┘                  └──────────────────────────┘
+               │
+               ▼
+        ┌──────────────────────────────┐
+        │     FRONTEND DASHBOARD       │
+        │                              │
+        │  React UI                    │
+        │  - Live Incidents            │
+        │  - Filters/Search            │
+        │  - RCA Form                  │
+        └──────────────────────────────┘
 ```
 
 ---
