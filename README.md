@@ -132,35 +132,41 @@ ims/
 │   │   ├── db.py               # SQLite persistence layer
 │   │   ├── retry.py            # Retry logic with async queue
 │   │   ├── rate_limit.py       # Rate limiting logic
-│   │   ├── alert_strategy.py   # Alert strategies (helper module)
-│   │   ├── state_machine.py    # State transitions (helper module)
-│   │   ├── debounce.py         # Debouncing utilities (helper module)
+│   │   ├── alert_strategy.py   # Alert strategies
+│   │   ├── state_machine.py    # Incident state transitions
+│   │   ├── debounce.py         # Signal aggregation logic
 │   │   ├── logger.py           # Logging utilities
-│   │   ├── utils.py            # Helper functions
-│   │   ├── service.py          # Business logic layer (reference)
-│   │   ├── repository.py       # Data access layer (reference)
+│   │   ├── utils.py            # Helper functions (MTTR, etc.)
+│   │   ├── service.py          # Business logic layer
+│   │   ├── repository.py       # Data access layer
 │   │   ├── worker.py           # Worker management
-│   │   └── test_load.py        # Load testing script
+│   │   ├── test_load.py        # Load testing script
+│   │   ├── test_basic.py       # Unit tests
+│   │   └── simulate_failure.py # Failure simulation script
 │   ├── incidents.db            # SQLite database (auto-created)
 │   ├── requirements.txt        # Python dependencies
-│   └── Dockerfile              # Docker configuration
+│   ├── Dockerfile              # Backend container config
+│   └── .dockerignore           # Ignore unnecessary files
 │
 ├── frontend/                   # React frontend
 │   ├── ims-ui/
 │   │   ├── src/
-│   │   │   ├── App.js          # Root component + routing
-│   │   │   ├── Dashboard.js    # Incident list view
-│   │   │   ├── IncidentDetail.js # Incident detail + RCA form
-│   │   │   ├── App.css         # Styles
-│   │   │   └── index.js        # React entry point
+│   │   │   ├── App.js
+│   │   │   ├── Dashboard.js
+│   │   │   ├── IncidentDetail.js
+│   │   │   ├── App.css
+│   │   │   └── index.js
 │   │   ├── public/
-│   │   │   ├── index.html      # HTML template
+│   │   │   ├── index.html
 │   │   │   └── favicon.ico
-│   │   ├── package.json        # Dependencies
-│   │   └── Dockerfile          # Docker configuration
+│   │   ├── package.json
+│   │   ├── Dockerfile
+│   │   └── .dockerignore       # Ignore node_modules
 │
-├── docker-compose.yml          # Orchestrate all services
-├── README.md                   # This file (if root level)
+├── prompts.md                  # Prompts used during development
+├── sample_data.json            # Sample dat
+├── docker-compose.yml          # Service orchestration
+├── README.md                   # Project documentation
 └── .gitignore
 ```
 
@@ -224,7 +230,15 @@ docker-compose up --build
 # - Frontend: http://localhost:3000
 ```
 
-> **Note:** Additional services (PostgreSQL, MongoDB, Redis) are defined in `docker-compose.yml` but not currently used by the backend. The backend uses SQLite for data persistence.
+### Docker Notes
+
+- The system is fully containerized using Docker Compose  
+- No external services (PostgreSQL, Redis, etc.) are required  
+- SQLite is used as the embedded database inside the backend container  
+- Backend runs on port 8000 and frontend runs on port 3000  
+- All services start with a single command and require no manual setup
+
+This ensures a reproducible and clean environment for running the application without any additional dependencies.
 
 ---
 
@@ -773,7 +787,18 @@ async def retry_worker():
                 retry_queue.append((func, args))
         await asyncio.sleep(2)  # 2-second backoff
 ```
+---
+## 🗄️ Data Handling
 
+- SQLite used as the primary data store (incidents, RCA, MTTR)
+- Raw signals are processed in-memory and not stored separately
+- Signals are aggregated directly into incident records
+- Reduces storage overhead and improves processing efficiency
+- Maintains incidents as the single source of truth
+
+- Trade-off: raw signal history is not persisted
+- In production, signals would be stored in a separate system (e.g., logs/data lake)
+- Incidents would remain the operational data layer
 ---
 
 ## 🧪 Testing
@@ -782,48 +807,38 @@ async def retry_worker():
 
 **RCA Validation Tests** (in `app/test_load.py`):
 
-```python
-def test_valid_rca():
-    """Test RCA with all required fields"""
-    rca = {
-        "start": "2026-05-04T10:30:00",
-        "end": "2026-05-04T11:15:00",
-        "rootCause": "Database replication lag...",
-        "fix": "Implemented connection pooling",
-        "prevention": "Added monitoring alerts"
-    }
-    assert validate_rca(rca) == True
+### Unit Testing
 
-def test_missing_rca_field():
-    """Test RCA missing required field"""
-    rca = {
-        "start": "2026-05-04T10:30:00",
-        # Missing: end, rootCause, fix, prevention
-    }
-    assert validate_rca(rca) == False
+Basic unit tests are included to validate core logic and data correctness:
 
-def test_invalid_datetime():
-    """Test RCA with invalid datetime"""
-    rca = {
-        "start": "invalid-date",
-        "end": "2026-05-04T11:15:00",
-        ...
-    }
-    assert validate_rca(rca) == False
+- MTTR calculation logic  
+- RCA structure validation  
+- Signal payload validation  
+
+Run unit tests:
+
+```bash
+pytest
 ```
 
 ### Load Testing
 
-**Simulate high-volume signals:**
+A load testing script (test_load.py) is provided to simulate high-volume signal ingestion and evaluate system behavior under stress.
+
+Run load test:
 
 ```bash
 python -m app.test_load
 ```
 
-**Generates:**
-- 1000 signals per second
-- 5 different components
-- Monitors response times and queue depth
+### Testing Approach
+
+The system uses:
+
+- Unit testing for validating core logic and data correctness  
+- Load testing for evaluating performance and resilience under high traffic  
+
+This ensures both correctness and system stability, aligning with real-world SRE practices.
 
 ---
 
