@@ -605,9 +605,12 @@ const handleSubmit = async (e) => {
 - Queue-based backpressure handling
 
 ✅ **Debouncing**
-- Per-component signal grouping (10-second window)
-- 100 signals from same component = 1 incident
-- Efficient memory usage with async locks
+- Per-component signal aggregation (state-based approach)
+- Signals are merged into an existing OPEN incident
+- No time-window or fixed threshold batching is used
+- Prevents duplicate incident creation under high load
+- Lightweight implementation using async locks for consistency
+- Designed for simplicity; can be extended to time-based or distributed debouncing (e.g., Redis/Kafka)
 
 ✅ **Concurrency**
 - 2 background workers processing signals asynchronously
