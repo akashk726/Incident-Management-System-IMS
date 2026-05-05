@@ -1,13 +1,10 @@
 services:
-
   backend:
     build: ./backend
     ports:
       - "8000:8000"
-    depends_on:
-      - postgres
-      - mongo
-      - redis
+    volumes:
+      - ./backend:/app
 
   frontend:
     build: ./frontend/ims-ui
@@ -15,16 +12,5 @@ services:
       - "3000:3000"
     depends_on:
       - backend
-
-  postgres:
-    image: postgres:15
     environment:
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
-      POSTGRES_DB: ims
-
-  mongo:
-    image: mongo:6
-
-  redis:
-    image: redis:7
+      HOST: 0.0.0.0

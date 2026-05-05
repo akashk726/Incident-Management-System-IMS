@@ -1,0 +1,37 @@
+[
+  {
+    "component_id": "RDBMS_01",
+    "timestamp": "2026-05-05T10:00:00"
+  },
+  {
+    "component_id": "RDBMS_01",
+    "timestamp": "2026-05-05T10:00:01"
+  },
+  {
+    "component_id": "RDBMS_01",
+    "timestamp": "2026-05-05T10:00:02"
+  },
+
+  {
+    "component_id": "API_01",
+    "timestamp": "2026-05-05T10:00:05"
+  },
+  {
+    "component_id": "API_01",
+    "timestamp": "2026-05-05T10:00:06"
+  },
+
+  {
+    "component_id": "CACHE_01",
+    "timestamp": "2026-05-05T10:00:10"
+  },
+
+  {
+    "component_id": "MCP_01",
+    "timestamp": "2026-05-05T10:00:15"
+  },
+  {
+    "component_id": "MCP_01",
+    "timestamp": "2026-05-05T10:00:16"
+  }
+]
