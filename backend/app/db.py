@@ -2,7 +2,7 @@ import sqlite3
 import os
 import json
 
-# 🔥 retry helper (ADDED)
+# retry helper (ADDED)
 from app.retry import enqueue_retry
 
 # ------------------ DB PATH ------------------
