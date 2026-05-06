@@ -7,7 +7,7 @@ from collections import defaultdict, deque
 
 from app.db import save_incident, update_incident, load_incidents
 
-# 🔥 retry worker (ADDED)
+# retry worker (ADDED)
 from app.retry import retry_worker
 
 app = FastAPI()
@@ -140,7 +140,7 @@ async def startup():
     for _ in range(WORKER_COUNT):
         asyncio.create_task(worker())
 
-    # 🔥 START RETRY WORKER
+    # START RETRY WORKER
     asyncio.create_task(retry_worker())
 
 # ------------------ APIs ------------------
@@ -165,7 +165,7 @@ async def ingest(signal: Signal):
 def get_incidents():
     return incidents
 
-# 🔥 HEALTH ENDPOINT (ADDED)
+# HEALTH ENDPOINT (ADDED)
 @app.get("/health")
 def health():
     return {
